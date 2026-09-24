@@ -18,6 +18,13 @@ app.get("/", (req, res) => {
   });
 });
 
+//them
+app.get("/health", (req, res) => {
+  res.status(200).json({
+    status: "healthy",
+  });
+});
+
 
 // Product routes
 app.use("/api/products", productRoutes);
