@@ -46,6 +46,33 @@ jobs:
       - name: Run CRUD integration tests
         run: npm run test:integration
 
+      - name: Login to Docker Hub
+        if: success() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          printf '%s' "$DOCKERHUB_TOKEN" | docker login \
+            --username "$DOCKERHUB_USERNAME" \
+            --password-stdin
+
+      - name: Tag and push tested image
+        if: success() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          IMAGE="$DOCKERHUB_USERNAME/product-api"
+
+          docker tag product-api:ci "$IMAGE:$GITHUB_SHA"
+          docker tag product-api:ci "$IMAGE:latest"
+
+          docker push "$IMAGE:$GITHUB_SHA"
+          docker push "$IMAGE:latest"
+
+      - name: Logout from Docker Hub
+        if: always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: docker logout
+
       - name: Show logs on failure
         if: failure()
         run: docker compose -p product-ci -f docker-compose-ci.yaml logs --no-color --tail=100
