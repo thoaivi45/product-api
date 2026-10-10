@@ -103,41 +103,24 @@ jobs:
     steps:
       - name: Check local Docker and configuration
         run: |
-          docker info
-          if ($LASTEXITCODE -ne 0) {
-              throw "Docker Engine is unavailable"
-          }
-
+          docker info | Out-Null
           docker compose -p product-api -f docker-compose-prod.yaml config --quiet
-          if ($LASTEXITCODE -ne 0) {
-              throw "Invalid production Compose configuration"
-          }
 
       - name: Pull tested image from Docker Hub
         run: |
           docker compose -p product-api -f docker-compose-prod.yaml pull product-api
-          if ($LASTEXITCODE -ne 0) {
-              throw "Failed to pull tested image"
-          }
 
       - name: Deploy and wait for healthchecks
         run: |
           docker compose -p product-api -f docker-compose-prod.yaml up -d --no-build --wait --wait-timeout 120
-          if ($LASTEXITCODE -ne 0) {
-              throw "Deployment or healthcheck failed"
-          }
 
       - name: Verify deployed image and API
         run: |
           $expected = "thoaivi/product-api:$env:IMAGE_TAG"
-          $actual = docker inspect product-api --format '{{.Config.Image}}'
+          $actual = (docker inspect product-api --format '{{.Config.Image}}').Trim()
 
-          if ($LASTEXITCODE -ne 0) {
-              throw "Cannot inspect API container"
-          }
-
-          if ($actual.Trim() -ne $expected) {
-              throw "Deployed image does not match the tested commit"
+          if ($actual -ne $expected) {
+              throw "Deployed image ($actual) does not match expected ($expected)"
           }
 
           $health = Invoke-RestMethod -Uri "http://localhost:3000/health" -TimeoutSec 10
@@ -150,9 +133,6 @@ jobs:
           $health | ConvertTo-Json
 
           docker compose -p product-api -f docker-compose-prod.yaml ps
-          if ($LASTEXITCODE -ne 0) {
-              throw "Cannot list deployed containers"
-          }
 
       - name: Show deployment logs on failure
         if: failure()
