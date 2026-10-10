@@ -80,3 +80,80 @@ jobs:
       - name: Clean up test environment
         if: always()
         run: docker compose -p product-ci -f docker-compose-ci.yaml down -v
+
+  deploy-local:
+    name: Deploy to local Docker Engine
+    needs: integration-test
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: [self-hosted, Windows, X64, product-api-local]
+    timeout-minutes: 10
+
+    concurrency:
+      group: product-api-local-deployment
+      cancel-in-progress: false
+
+    env:
+      IMAGE_TAG: ${{ github.sha }}
+
+    defaults:
+      run:
+        shell: powershell
+        working-directory: 'D:\LT Hướng Dịch Vụ\IUH-MSA\product-api'
+
+    steps:
+      - name: Check local Docker and configuration
+        run: |
+          docker info
+          if ($LASTEXITCODE -ne 0) {
+              throw "Docker Engine is unavailable"
+          }
+
+          docker compose -p product-api -f docker-compose-prod.yaml config --quiet
+          if ($LASTEXITCODE -ne 0) {
+              throw "Invalid production Compose configuration"
+          }
+
+      - name: Pull tested image from Docker Hub
+        run: |
+          docker compose -p product-api -f docker-compose-prod.yaml pull product-api
+          if ($LASTEXITCODE -ne 0) {
+              throw "Failed to pull tested image"
+          }
+
+      - name: Deploy and wait for healthchecks
+        run: |
+          docker compose -p product-api -f docker-compose-prod.yaml up -d --no-build --wait --wait-timeout 120
+          if ($LASTEXITCODE -ne 0) {
+              throw "Deployment or healthcheck failed"
+          }
+
+      - name: Verify deployed image and API
+        run: |
+          $expected = "thoaivi/product-api:$env:IMAGE_TAG"
+          $actual = docker inspect product-api --format '{{.Config.Image}}'
+
+          if ($LASTEXITCODE -ne 0) {
+              throw "Cannot inspect API container"
+          }
+
+          if ($actual.Trim() -ne $expected) {
+              throw "Deployed image does not match the tested commit"
+          }
+
+          $health = Invoke-RestMethod -Uri "http://localhost:3000/health" -TimeoutSec 10
+
+          if ($health.status -ne "healthy" -or $health.database -ne "connected") {
+              throw "API or database is unhealthy"
+          }
+
+          Write-Output "Deployed image: $actual"
+          $health | ConvertTo-Json
+
+          docker compose -p product-api -f docker-compose-prod.yaml ps
+          if ($LASTEXITCODE -ne 0) {
+              throw "Cannot list deployed containers"
+          }
+
+      - name: Show deployment logs on failure
+        if: failure()
+        run: docker compose -p product-api -f docker-compose-prod.yaml logs --tail=100
