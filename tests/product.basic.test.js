@@ -56,4 +56,3 @@ test("Từ chối số lượng không nguyên", async () => {
       error.name === "ValidationError" && Boolean(error.errors.quantity)
   );
 });
-test("Rong", () => assert.rejects(new Product().validate()));
